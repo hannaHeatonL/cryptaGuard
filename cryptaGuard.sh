@@ -1,4 +1,5 @@
 #!/bin/bash
+shopt -s nullglob
 
 echo "========================="
 echo " AES Encryption Tool"
@@ -20,14 +21,19 @@ echo "1) Encrypt"
 echo "2) Decrypt"
 read mode
 
-# -------------------------
-# TARGET
-# -------------------------
-echo "Enter file or folder path:"
-read target
+if [[ "$mode" != "1" && "$mode" != "2" ]]; then
+    echo "Invalid mode selected."
+    exit 1
+fi
 
-if [ ! -e "$target" ]; then
-    echo "Invalid path!"
+# -------------------------
+# TARGETS (MULTI INPUT)
+# -------------------------
+echo "Enter file(s) or folder(s) (separate with spaces):"
+read -a targets
+
+if [ ${#targets[@]} -eq 0 ]; then
+    echo "No input provided."
     exit 1
 fi
 
@@ -60,6 +66,11 @@ echo "2) Generate random key"
 echo "3) Password-based key"
 read key_type
 
+if [[ "$key_type" != "1" && "$key_type" != "2" && "$key_type" != "3" ]]; then
+    echo "Invalid key type selected."
+    exit 1
+fi
+
 if [ "$key_type" == "1" ]; then
     echo "Enter HEX key:"
     read KEY
@@ -73,10 +84,8 @@ elif [ "$key_type" == "3" ]; then
     read -s PASSWORD
     echo ""
 
-    # derive key using SHA-256 (simple but acceptable)
     FULL_HASH=$(echo -n "$PASSWORD" | openssl dgst -sha256 | awk '{print $2}')
 
-    # truncate based on AES size
     if [ "$KEY_BYTES" -eq 16 ]; then
         KEY=${FULL_HASH:0:32}
     elif [ "$KEY_BYTES" -eq 24 ]; then
@@ -87,22 +96,26 @@ elif [ "$key_type" == "3" ]; then
 fi
 
 # -------------------------
-# VALIDATE KEY LENGTH
+# VALIDATE KEY
 # -------------------------
+if ! [[ "$KEY" =~ ^[0-9a-fA-F]+$ ]]; then
+    echo "Error: Key must be valid hexadecimal."
+    exit 1
+fi
+
 EXPECTED_LEN=$((KEY_BYTES * 2))
 
 if [ ${#KEY} -ne $EXPECTED_LEN ]; then
-    echo "Error: Key must be $EXPECTED_LEN hex characters for selected AES size."
+    echo "Error: Key must be $EXPECTED_LEN hex characters."
     exit 1
 fi
 
 # -------------------------
-# ENCRYPT FUNCTION
+# ENCRYPT FILE
 # -------------------------
 encrypt_file() {
     file="$1"
 
-    # skip already encrypted files
     if [[ "$file" == *.enc ]]; then
         echo "Skipping already encrypted: $file"
         return
@@ -110,25 +123,27 @@ encrypt_file() {
 
     echo "Encrypting: $file"
 
-    IV=$(openssl rand -hex 16)
+    # generate binary IV (16 bytes)
+    IV=$(openssl rand 16)
 
-    openssl enc -$CIPHER -in "$file" -out "$file.enc.tmp" -K "$KEY" -iv "$IV"
+    # encrypt
+    openssl enc -$CIPHER -in "$file" -out "$file.enc.tmp" -K "$KEY" -iv "$(echo -n "$IV" | xxd -p)"
 
-    # prepend IV
-    echo "$IV" | xxd -r -p > "$file.enc"
+    # prepend binary IV directly
+    printf "%s" "$IV" > "$file.enc"
     cat "$file.enc.tmp" >> "$file.enc"
+
     rm "$file.enc.tmp"
 
     echo "Encrypted -> $file.enc"
 }
 
 # -------------------------
-# DECRYPT FUNCTION
+# DECRYPT FILE
 # -------------------------
 decrypt_file() {
     file="$1"
 
-    # only decrypt .enc files
     if [[ "$file" != *.enc ]]; then
         echo "Skipping non-encrypted file: $file"
         return
@@ -136,12 +151,15 @@ decrypt_file() {
 
     echo "Decrypting: $file"
 
-    IV=$(xxd -p -l 16 "$file")
+    # extract binary IV (first 16 bytes)
+    IV=$(head -c 16 "$file")
+
+    # extract ciphertext
     tail -c +17 "$file" > "$file.body"
 
     output="${file%.enc}.dec"
 
-    openssl enc -d -$CIPHER -in "$file.body" -out "$output" -K "$KEY" -iv "$IV"
+    openssl enc -d -$CIPHER -in "$file.body" -out "$output" -K "$KEY" -iv "$(echo -n "$IV" | xxd -p)"
 
     rm "$file.body"
 
@@ -177,11 +195,18 @@ process_folder() {
 # -------------------------
 # RUN
 # -------------------------
-if [ -f "$target" ]; then
-    process_file "$target"
+for target in "${targets[@]}"; do
+    if [ ! -e "$target" ]; then
+        echo "Invalid path: $target"
+        continue
+    fi
 
-elif [ -d "$target" ]; then
-    process_folder "$target"
-fi
+    if [ -f "$target" ]; then
+        process_file "$target"
+
+    elif [ -d "$target" ]; then
+        process_folder "$target"
+    fi
+done
 
 echo "Done."
