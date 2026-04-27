@@ -131,16 +131,18 @@ encrypt_file() {
     echo "Encrypting: $file"
 
     # generate binary IV (16 bytes)
-    IV=$(openssl rand 16)
+    openssl rand 16 > iv.bin
+
+    #convert iv to hex for openssl
+    IV_HEX=$(xxd -p iv.bin)
 
     # encrypt
-    openssl enc -$CIPHER -in "$file" -out "$file.enc.tmp" -K "$KEY" -iv "$(echo -n "$IV" | xxd -p)"
+    openssl enc -$CIPHER -in "$file" -out "$file.enc.tmp" -K "$KEY" -iv "$IV_HEX"
 
     # prepend binary IV directly
-    printf "%s" "$IV" > "$file.enc"
-    cat "$file.enc.tmp" >> "$file.enc"
+    cat iv.bin "$file.enc.tmp" > "$file.enc"
 
-    rm "$file.enc.tmp"
+    rm iv.bin "$file.enc.tmp"
 
     echo "Encrypted -> $file.enc"
 }
@@ -159,16 +161,19 @@ decrypt_file() {
     echo "Decrypting: $file"
 
     # extract binary IV (first 16 bytes)
-    IV=$(head -c 16 "$file")
+    head -c 16 "$file" > iv.bin
+
+    # convert to hex
+    IV_HEX=$(xxd -p iv.bin)
 
     # extract ciphertext
     tail -c +17 "$file" > "$file.body"
 
     output="${file%.enc}.dec"
 
-    openssl enc -d -$CIPHER -in "$file.body" -out "$output" -K "$KEY" -iv "$(echo -n "$IV" | xxd -p)"
+    openssl enc -d -$CIPHER -in "$file.body" -out "$output" -K "$KEY" -iv "$IV_HEX"
 
-    rm "$file.body"
+    rm iv.bin "$file.body"
 
     echo "Decrypted -> $output"
 }
