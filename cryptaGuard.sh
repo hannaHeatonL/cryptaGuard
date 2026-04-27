@@ -61,9 +61,16 @@ fi
 # KEY SELECTION
 # -------------------------
 echo "Choose key type:"
-echo "1) Provide HEX key"
-echo "2) Generate random key"
-echo "3) Password-based key"
+
+if [ "$mode" = 2 ]; then
+    echo "1) Provide HEX key"
+    echo "3) Password-based key"
+else
+    echo "1) Provide HEX key"
+    echo "2) Generate random key"
+    echo "3) Password-based key"
+fi
+
 read key_type
 
 if [[ "$key_type" != "1" && "$key_type" != "2" && "$key_type" != "3" ]]; then
